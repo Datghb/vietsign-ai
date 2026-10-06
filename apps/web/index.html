@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VietSignAI</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>VietSignAI</h1>
+          <p>Development console for gloss recognition and Vietnamese translation.</p>
+        </div>
+        <span id="status-pill" class="pill">Checking API</span>
+      </header>
+
+      <nav class="tabs" aria-label="Views">
+        <button data-view="home" class="active">Home</button>
+        <button data-view="video">Video Recognition</button>
+        <button data-view="realtime">Realtime / Webcam</button>
+        <button data-view="models">Model Status</button>
+      </nav>
+
+      <section id="home" class="view active">
+        <h2>Pipeline Overview</h2>
+        <div id="pipeline-list" class="grid"></div>
+      </section>
+
+      <section id="video" class="view">
+        <h2>Video Recognition</h2>
+        <div class="panel">
+          <label>
+            Video upload preview
+            <input id="video-file" type="file" accept="video/*" />
+          </label>
+          <video id="video-preview" controls></video>
+          <label>
+            Pipeline
+            <select id="pipeline-select">
+              <option value="continuous_keypoint">Continuous keypoint features</option>
+              <option value="continuous_translate">Continuous + translation</option>
+              <option value="isolated_keypoint">Raw video isolated recognition</option>
+            </select>
+          </label>
+          <label>
+            Feature cache path
+            <input id="features-path" value="data/cache/keypoints/continuous_synthetic/cs_val_002.npz" />
+          </label>
+          <button id="run-continuous">Recognize Glosses</button>
+          <button id="run-translate">Recognize + Translate</button>
+          <button id="submit-video">Submit Video</button>
+        </div>
+        <pre id="video-result" class="result"></pre>
+      </section>
+
+      <section id="realtime" class="view">
+        <h2>Realtime / Webcam</h2>
+        <div class="panel">
+          <video id="camera" autoplay muted playsinline></video>
+          <div class="actions">
+            <button id="start-camera">Start Camera</button>
+            <button id="stop-camera">Stop</button>
+          </div>
+          <p class="muted">Realtime transport is prepared in the backend session layer. This UI initializes webcam capture without fabricating predictions.</p>
+        </div>
+      </section>
+
+      <section id="models" class="view">
+        <h2>Model Status</h2>
+        <div id="model-list" class="grid"></div>
+      </section>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
