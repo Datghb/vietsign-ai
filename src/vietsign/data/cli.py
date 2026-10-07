@@ -10,6 +10,7 @@ from vietsign.data.adapters import DatasetLoadError, create_adapter
 from vietsign.data.config import load_dataset_config
 from vietsign.data.sources import (
     fetch_huggingface_metadata,
+    fetch_visignlanguage_video,
     load_source_registry,
     source_status_matrix,
 )
@@ -53,17 +54,27 @@ def add_dataset_subcommands(subparsers: argparse._SubParsersAction[argparse.Argu
     sources.set_defaults(handler=handle_sources)
 
     fetch = dataset_subparsers.add_parser("fetch", help="Fetch or inspect external data source metadata")
-    fetch.add_argument("source", choices=["voya-vsl"])
+    fetch.add_argument("source", choices=["voya-vsl", "visignlanguage-video"])
     fetch.add_argument("--metadata-only", action="store_true", help="Download only small metadata files")
     fetch.add_argument("--dry-run", action="store_true", help="Print official fetch command without downloading")
     fetch.add_argument("--target", default=None)
+    fetch.add_argument("--extract", action="store_true", help="Extract archive after download when supported")
     fetch.add_argument("--classes", nargs="*", default=None, help="Selected VOYA class IDs, e.g. 1 class_0001")
     fetch.add_argument("--max-class-size-mb", type=float, default=1024.0)
     fetch.add_argument("--max-total-size-gb", type=float, default=None)
     fetch.set_defaults(handler=handle_fetch)
 
     verify = dataset_subparsers.add_parser("verify", help="Verify external data source local availability")
-    verify.add_argument("source", choices=["voya-vsl", "vsl400", "parallel-corpus-vie-vsl", "visl-news"])
+    verify.add_argument(
+        "source",
+        choices=[
+            "voya-vsl",
+            "vsl400",
+            "parallel-corpus-vie-vsl",
+            "visl-news",
+            "visignlanguage-video",
+        ],
+    )
     verify.add_argument("--root", default=None)
     verify.set_defaults(handler=handle_verify)
 
@@ -168,6 +179,41 @@ def handle_fetch(args: argparse.Namespace) -> int:
         payload["fetch_report"] = fetch_report
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
+    if args.source == "visignlanguage-video":
+        registry = load_source_registry()
+        source = registry.get("ViSignLanguage-Video")
+        target = Path(args.target) if args.target else source.local_target_directory
+        metadata = fetch_huggingface_metadata("star092304/ViSignLanguage-Video")
+        official_command = (
+            "huggingface-cli download star092304/ViSignLanguage-Video --repo-type dataset "
+            f"--local-dir {target} --local-dir-use-symlinks False"
+        )
+        payload = {
+            "source": source.model_dump(mode="json"),
+            "remote": {
+                "sha": metadata.get("sha"),
+                "license": metadata.get("cardData", {}).get("license"),
+                "used_storage_bytes": metadata.get("usedStorage"),
+                "siblings": len(metadata.get("siblings", [])),
+            },
+            "official_download_command": official_command,
+            "dataset_zip_size_bytes": 863_939_416,
+            "dataset_zip_size_mb": 824.0,
+        }
+        if args.dry_run:
+            payload["status"] = "dry_run"
+            payload["note"] = "No files downloaded."
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+            return 0
+        fetch_report = fetch_visignlanguage_video(
+            target=target,
+            metadata_only=args.metadata_only,
+            extract=args.extract,
+        )
+        payload["status"] = "metadata_downloaded" if args.metadata_only else "dataset_downloaded"
+        payload["fetch_report"] = fetch_report
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
     raise ValueError(args.source)
 
 
@@ -195,6 +241,24 @@ def handle_verify(args: argparse.Namespace) -> int:
             "license_status": "unknown",
         }
     else:
+        if args.source == "visignlanguage-video":
+            dataset_root = root / "dataset" if (root / "dataset").exists() else root
+            report = {
+                "dataset": "ViSignLanguage-Video",
+                "root": str(root),
+                "dataset_root": str(dataset_root),
+                "exists": root.exists(),
+                "metadata_csv": (root / "dataset_metadata.csv").exists(),
+                "archive_zip": (root / "dataset.zip").exists(),
+                "train_dir": (dataset_root / "train").exists(),
+                "public_test_dir": (dataset_root / "public_test").exists(),
+                "private_test_dir": (dataset_root / "private_test").exists(),
+                "status": "ready_for_video_training"
+                if (dataset_root / "train").exists()
+                else "metadata_or_archive_present_needs_extraction",
+            }
+            print(json.dumps(report, indent=2, ensure_ascii=False))
+            return 0
         report = {
             "dataset": "ViSL-News",
             "root": str(root),

@@ -26,9 +26,15 @@ class DatasetStatistics(BaseModel):
     total_samples: int
     num_labels: int
     num_signers: int
+    num_cameras: int
+    num_views: int
+    num_domains: int
     samples_per_split: dict[str, int] = Field(default_factory=dict)
     samples_per_class: dict[str, int] = Field(default_factory=dict)
     samples_per_signer: dict[str, int] = Field(default_factory=dict)
+    samples_per_camera: dict[str, int] = Field(default_factory=dict)
+    samples_per_view: dict[str, int] = Field(default_factory=dict)
+    samples_per_domain: dict[str, int] = Field(default_factory=dict)
     duration: NumericSummary
     fps: NumericSummary
     resolutions: dict[str, int] = Field(default_factory=dict)
@@ -41,14 +47,23 @@ def compute_dataset_statistics(samples: list[SignSample]) -> DatasetStatistics:
     labels = Counter(sample.label for sample in samples)
     signer_ids = [sample.signer_id for sample in samples if sample.signer_id]
     signers = Counter(signer_ids)
+    cameras = Counter(sample.camera for sample in samples if sample.camera)
+    views = Counter(sample.view_id for sample in samples if sample.view_id)
+    domains = Counter(sample.domain_id for sample in samples if sample.domain_id)
 
     return DatasetStatistics(
         total_samples=len(samples),
         num_labels=len(labels),
         num_signers=len(signers),
+        num_cameras=len(cameras),
+        num_views=len(views),
+        num_domains=len(domains),
         samples_per_split=dict(sorted(Counter(sample.split for sample in samples).items())),
         samples_per_class=dict(sorted(labels.items())),
         samples_per_signer=dict(sorted(signers.items())),
+        samples_per_camera=dict(sorted(cameras.items())),
+        samples_per_view=dict(sorted(views.items())),
+        samples_per_domain=dict(sorted(domains.items())),
         duration=_numeric_summary(sample.duration for sample in samples),
         fps=_numeric_summary(sample.fps for sample in samples),
         resolutions=dict(
@@ -86,4 +101,3 @@ def _class_imbalance(labels: Counter[str]) -> dict[str, Any]:
         "minority_classes": sorted(label for label, count in labels.items() if count == min_count),
         "majority_classes": sorted(label for label, count in labels.items() if count == max_count),
     }
-

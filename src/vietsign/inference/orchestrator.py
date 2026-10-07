@@ -10,11 +10,17 @@ from vietsign.inference.errors import PipelineUnavailableError
 from vietsign.inference.model_manager import ModelManager
 from vietsign.inference.schemas import (
     ContinuousRecognitionResult,
+    IsolatedRecognitionResult,
     ProcessingMetadata,
     RecognitionTranslationResult,
     TranslationResult,
 )
-from vietsign.training.runner import predict_continuous, recognize_and_translate, translate_gloss
+from vietsign.training.runner import (
+    predict_continuous,
+    predict_video,
+    recognize_and_translate,
+    translate_gloss,
+)
 
 
 class VietSignPipeline:
@@ -92,6 +98,34 @@ class VietSignPipeline:
             recognition_model=self.manager.info(cslr_model),
             translation_model=self.manager.info(translation_model),
             development_only=cslr_model.development_only or translation_model.development_only,
+            warnings=[result["note"]],
+        )
+
+    def recognize_isolated_rgb(
+        self,
+        video_path: str | Path,
+        *,
+        request_id: str | None = None,
+        model_name: str | None = None,
+        top_k: int = 5,
+    ) -> IsolatedRecognitionResult:
+        request_id = request_id or _request_id()
+        started = time.perf_counter()
+        model = self.manager.get(model_name, task="rgb_recognition")
+        result = predict_video(
+            config=self.manager.training_config(model),
+            video_path=video_path,
+            checkpoint_path=self.manager.checkpoint_path(model),
+            top_k=top_k,
+        )
+        return IsolatedRecognitionResult(
+            request_id=request_id,
+            label=result["label"],
+            confidence=result["confidence"],
+            top_k=result["top_k"],
+            processing=_processing(started),
+            model=self.manager.info(model),
+            development_only=model.development_only,
             warnings=[result["note"]],
         )
 

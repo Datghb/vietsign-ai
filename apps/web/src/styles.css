@@ -9,7 +9,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -104,7 +105,8 @@ label {
   margin-bottom: 12px;
 }
 
-input {
+input,
+select {
   border: 1px solid #b8c6bf;
   border-radius: 6px;
   padding: 10px 12px;
@@ -131,4 +133,20 @@ video {
 
 .muted {
   color: #5f6c66;
+}
+
+.translation-output {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #cdd9d3;
+  border-radius: 8px;
+  background: #f8fbf9;
+}
+
+.translation-output strong {
+  font-size: 1.6rem;
+  line-height: 1.2;
+  color: #173d35;
 }

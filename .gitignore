@@ -16,6 +16,7 @@ data/interim/
 data/processed/
 data/cache/
 outputs/
+models/pretrained/
 models/mediapipe/*.task
 models/mediapipe/manifest.json
 models/rtmpose/*.onnx

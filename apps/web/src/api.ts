@@ -32,6 +32,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return (await response.json()) as T;
+}
+
 export const api = {
   health: () => request<Record<string, unknown>>("/health"),
   pipelines: () => request<{ pipelines: PipelineInfo[] }>("/pipelines"),
@@ -46,4 +57,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ features_path: featuresPath }),
     }),
+  predictIsolatedVideo: (video: Blob, filename = "clip.webm", topK = 5) => {
+    const form = new FormData();
+    form.append("video", video, filename);
+    form.append("model", "visignlanguage_tiny_rgb");
+    form.append("top_k", String(topK));
+    return requestForm<Record<string, unknown>>("/predict/isolated", form);
+  },
 };

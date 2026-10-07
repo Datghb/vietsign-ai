@@ -8,7 +8,11 @@ const featuresPath = element<HTMLInputElement>("features-path");
 const camera = element<HTMLVideoElement>("camera");
 const videoFile = element<HTMLInputElement>("video-file");
 const videoPreview = element<HTMLVideoElement>("video-preview");
+const liveLabel = element<HTMLElement>("live-label");
+const liveConfidence = element<HTMLElement>("live-confidence");
 let stream: MediaStream | null = null;
+let liveRunning = false;
+let mediaRecorder: MediaRecorder | null = null;
 
 document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.view ?? "home"));
@@ -27,19 +31,36 @@ videoFile.addEventListener("change", () => {
   videoPreview.src = file ? URL.createObjectURL(file) : "";
 });
 
-element<HTMLButtonElement>("submit-video").addEventListener("click", () => {
-  result.textContent = "Raw-video submission is available in the API shell, but real extraction/checkpoint readiness is deferred. Use feature-cache synthetic demos for now.";
+element<HTMLButtonElement>("submit-video").addEventListener("click", async () => {
+  const file = videoFile.files?.[0];
+  if (!file) {
+    result.textContent = "Choose a video file first.";
+    return;
+  }
+  await runAction(() => api.predictIsolatedVideo(file, file.name, 5));
 });
 
 element<HTMLButtonElement>("start-camera").addEventListener("click", async () => {
-  stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-  camera.srcObject = stream;
+  await startCamera();
+});
+
+element<HTMLButtonElement>("start-live").addEventListener("click", async () => {
+  await startCamera();
+  liveRunning = true;
+  liveLabel.textContent = "Listening...";
+  liveConfidence.textContent = "Confidence: -";
+  void recordNextClip();
 });
 
 element<HTMLButtonElement>("stop-camera").addEventListener("click", () => {
+  liveRunning = false;
+  mediaRecorder?.state === "recording" && mediaRecorder.stop();
+  mediaRecorder = null;
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   camera.srcObject = null;
+  liveLabel.textContent = "Stopped";
+  liveConfidence.textContent = "Confidence: -";
 });
 
 await refresh();
@@ -56,6 +77,62 @@ async function refresh(): Promise<void> {
     statusPill.className = "pill offline";
     pipelineList.textContent = String(error);
   }
+}
+
+async function startCamera(): Promise<void> {
+  if (stream) {
+    return;
+  }
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480 },
+    audio: false,
+  });
+  camera.srcObject = stream;
+}
+
+async function recordNextClip(): Promise<void> {
+  if (!stream || !liveRunning || mediaRecorder?.state === "recording") {
+    return;
+  }
+  const mimeType = preferredMimeType();
+  const chunks: Blob[] = [];
+  mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  mediaRecorder.addEventListener("dataavailable", (event) => {
+    if (event.data.size > 0) {
+      chunks.push(event.data);
+    }
+  });
+  mediaRecorder.addEventListener("stop", async () => {
+    const blob = new Blob(chunks, { type: mimeType || "video/webm" });
+    await updateLivePrediction(blob);
+    if (liveRunning) {
+      window.setTimeout(() => void recordNextClip(), 350);
+    }
+  });
+  mediaRecorder.start();
+  window.setTimeout(() => {
+    if (mediaRecorder?.state === "recording") {
+      mediaRecorder.stop();
+    }
+  }, 2500);
+}
+
+async function updateLivePrediction(blob: Blob): Promise<void> {
+  try {
+    const payload = await api.predictIsolatedVideo(blob, `webcam-${Date.now()}.webm`, 5);
+    const label = String(payload.label ?? "Unknown");
+    const confidence = Number(payload.confidence ?? 0);
+    liveLabel.textContent = label;
+    liveConfidence.textContent = `Confidence: ${(confidence * 100).toFixed(1)}%`;
+  } catch (error) {
+    liveLabel.textContent = "Prediction failed";
+    liveConfidence.textContent = String(error);
+  }
+}
+
+function preferredMimeType(): string {
+  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? "";
 }
 
 async function runAction(action: () => Promise<Record<string, unknown>>): Promise<void> {

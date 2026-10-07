@@ -398,7 +398,7 @@ def train_translation_model(config: RecognitionTrainingConfig, *, resume: str | 
         "best_checkpoint": str(run_dir / "best.pt"),
         "last_checkpoint": str(run_dir / "last.pt"),
         "task": "gloss_translation",
-        "label": "SYNTHETIC TRANSLATION SOFTWARE VALIDATION - NOT REAL VSL PERFORMANCE",
+        "label": _translation_result_label(config),
         "source_vocab_size": len(source_vocab.id_to_token),
         "target_vocab_size": len(target_vocab.id_to_token),
         "best_chrf": best_chrf,
@@ -959,7 +959,7 @@ def predict_video(
         "confidence": top[0]["confidence"],
         "top_k": top,
         "video_metadata": metadata,
-        "note": "Prediction semantics require a genuinely trained real-VSL checkpoint.",
+        "note": _rgb_prediction_note(config),
     }
 
 def predict_multimodal(
@@ -1578,10 +1578,30 @@ def evaluate_translation_loader(
     metrics["logits_inf"] = logits_inf
     return {
         "task": "gloss_translation",
-        "label": "SYNTHETIC TRANSLATION SOFTWARE VALIDATION - NOT REAL VSL PERFORMANCE",
+        "label": _translation_result_label(config),
         "metrics": metrics,
         "predictions": predictions,
     }
+
+
+def _translation_result_label(config: RecognitionTrainingConfig) -> str:
+    dataset_config = str(config.dataset.config).lower()
+    if any(name in dataset_config for name in ("parallel_vie_vsl", "vsl_gh")):
+        return (
+            "REAL GLOSS-TO-VIETNAMESE TEXT TRANSLATION DATA - "
+            "NOT WEBCAM/VISUAL VSL PERFORMANCE"
+        )
+    return "SYNTHETIC TRANSLATION SOFTWARE VALIDATION - NOT REAL VSL PERFORMANCE"
+
+
+def _rgb_prediction_note(config: RecognitionTrainingConfig) -> str:
+    dataset_config = str(config.dataset.config).lower()
+    if "visignlanguage" in dataset_config:
+        return (
+            "Real ViSignLanguage-Video checkpoint; label semantics are Vietnamese "
+            "class recognition, not full sentence-level VSL translation."
+        )
+    return "Prediction semantics require a genuinely trained real-VSL checkpoint."
 
 
 def _run_translation_epoch(

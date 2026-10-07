@@ -8,9 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from vietsign.data.adapters import CustomDatasetAdapter
+from vietsign.data.adapters import (
+    CustomDatasetAdapter,
+    MultiViewCSVAdapter,
+    ViSignLanguageVideoAdapter,
+)
 from vietsign.data.schema import SignSample
-from vietsign.data.splits import make_signer_independent_splits
+from vietsign.data.splits import make_group_independent_splits, make_signer_independent_splits
 from vietsign.data.stats import compute_dataset_statistics
 from vietsign.data.torch_dataset import SignVideoDataset
 from vietsign.data.validation import validate_samples
@@ -33,7 +37,17 @@ def _write_video(path: Path, *, frames: int = 4, fps: float = 5.0, size: tuple[i
 
 
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
-    fieldnames = ["sample_id", "video_path", "label", "label_id", "signer_id", "split"]
+    fieldnames = [
+        "sample_id",
+        "video_path",
+        "label",
+        "label_id",
+        "signer_id",
+        "split",
+        "camera",
+        "view_id",
+        "domain_id",
+    ]
     with path.open("w", encoding="utf-8", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
@@ -94,6 +108,79 @@ def test_custom_csv_loading(tmp_path: Path) -> None:
     assert samples[0].video_path == video_path
     assert samples[0].dataset == "custom"
 
+def test_multiview_csv_loading(tmp_path: Path) -> None:
+    video_path = tmp_path / "front" / "one.mp4"
+    video_path.parent.mkdir()
+    _write_video(video_path)
+    csv_path = tmp_path / "metadata.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "sample_id": "one-front",
+                "video_path": "front/one.mp4",
+                "label": "xin_chao",
+                "label_id": 0,
+                "signer_id": "s1",
+                "split": "train",
+                "camera": "cam_a",
+                "view_id": "front",
+                "domain_id": "studio",
+            }
+        ],
+    )
+
+    samples = MultiViewCSVAdapter("multiview", tmp_path, csv_path).load_samples()
+
+    assert len(samples) == 1
+    assert samples[0].camera == "cam_a"
+    assert samples[0].view_id == "front"
+    assert samples[0].domain_id == "studio"
+
+def test_visignlanguage_video_metadata_loading(tmp_path: Path) -> None:
+    metadata_path = tmp_path / "dataset_metadata.csv"
+    fieldnames = [
+        "split",
+        "label",
+        "filename",
+        "filepath",
+        "size_mb",
+        "fps",
+        "total_frames",
+        "width",
+        "height",
+        "duration_s",
+    ]
+    with metadata_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "split": "train",
+                "label": "An ủi",
+                "filename": "334053.mp4",
+                "filepath": "/content/drive/MyDrive/train/An ủi/334053.mp4",
+                "size_mb": "0.052",
+                "fps": "18.73",
+                "total_frames": "30",
+                "width": "224",
+                "height": "224",
+                "duration_s": "1.602",
+            }
+        )
+
+    samples = ViSignLanguageVideoAdapter(
+        "ViSignLanguage-Video",
+        tmp_path,
+        metadata_path,
+    ).load_samples()
+
+    assert len(samples) == 1
+    assert samples[0].label == "An ủi"
+    assert samples[0].video_path == tmp_path / "train" / "An ủi" / "334053.mp4"
+    assert samples[0].fps == 18.73
+    assert samples[0].frame_count == 30
+
 
 def test_missing_video_detection(tmp_path: Path) -> None:
     report = validate_samples([_sample("missing", tmp_path / "missing.mp4")])
@@ -145,7 +232,15 @@ def test_dataset_statistics() -> None:
             update={"duration": 3.0, "fps": 30.0, "width": 32, "height": 24}
         ),
         _sample("c", Path("c.mp4"), label="b", label_id=1, signer_id="s2", split="test").model_copy(
-            update={"duration": 2.0, "fps": 30.0, "width": 64, "height": 48}
+            update={
+                "duration": 2.0,
+                "fps": 30.0,
+                "width": 64,
+                "height": 48,
+                "camera": "cam_b",
+                "view_id": "right",
+                "domain_id": "webcam",
+            }
         ),
     ]
 
@@ -155,6 +250,10 @@ def test_dataset_statistics() -> None:
     assert stats.num_labels == 2
     assert stats.num_signers == 2
     assert stats.samples_per_class["b"] == 2
+    assert stats.num_cameras == 1
+    assert stats.num_views == 1
+    assert stats.num_domains == 1
+    assert stats.samples_per_view["right"] == 1
     assert stats.duration.mean == 2.0
     assert stats.resolutions["32x24"] == 2
     assert stats.class_imbalance["ratio"] == 2.0
@@ -191,6 +290,26 @@ def test_signer_independent_splitting_is_deterministic() -> None:
 def test_signer_independent_splitting_requires_signers() -> None:
     with pytest.raises(ValueError, match="requires signer_id"):
         make_signer_independent_splits([_sample("no-signer", Path("x.mp4"), signer_id=None)])
+
+def test_group_independent_splitting_by_view_is_deterministic() -> None:
+    samples = [
+        _sample(f"{view}-{index}", Path(f"{view}-{index}.mp4")).model_copy(update={"view_id": view})
+        for view in ("front", "left", "right", "top")
+        for index in range(2)
+    ]
+
+    first = make_group_independent_splits(samples, group_field="view_id", seed=7)
+    second = make_group_independent_splits(samples, group_field="view_id", seed=7)
+
+    assert [sample.split for sample in first] == [sample.split for sample in second]
+    view_to_split = {}
+    for sample in first:
+        view_to_split.setdefault(sample.view_id, sample.split)
+        assert view_to_split[sample.view_id] == sample.split
+
+def test_group_independent_splitting_requires_group_values() -> None:
+    with pytest.raises(ValueError, match="requires camera"):
+        make_group_independent_splits([_sample("no-camera", Path("x.mp4"))], group_field="camera")
 
 
 def test_torch_dataset_basic_behavior() -> None:

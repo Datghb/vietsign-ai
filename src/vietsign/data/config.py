@@ -13,7 +13,7 @@ class DatasetSourceConfig(BaseModel):
     """Configuration for one dataset source."""
 
     name: str
-    adapter: Literal["custom_csv", "vsl400", "vsl1000"] = "custom_csv"
+    adapter: Literal["custom_csv", "multiview_csv", "visignlanguage_video", "vsl400", "vsl1000"] = "custom_csv"
     root: Path = Path("data")
     metadata_csv: Path | None = None
 
@@ -38,4 +38,3 @@ def load_dataset_config(path: str | Path) -> DatasetConfig:
     with config_path.open("r", encoding="utf-8") as file:
         raw_config = yaml.safe_load(file) or {}
     return DatasetConfig.model_validate(raw_config)
-

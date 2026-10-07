@@ -21,6 +21,8 @@ class SignSample(BaseModel):
     dataset: str
     signer_id: str | None = None
     camera: str | None = None
+    view_id: str | None = None
+    domain_id: str | None = None
     duration: float | None = Field(default=None, ge=0.0)
     fps: float | None = Field(default=None, ge=0.0)
     frame_count: int | None = Field(default=None, ge=0)
@@ -61,6 +63,8 @@ class ContinuousSignSample(BaseModel):
     fps: float | None = Field(default=None, ge=0.0)
     frame_count: int | None = Field(default=None, ge=0)
     camera: str | None = None
+    view_id: str | None = None
+    domain_id: str | None = None
     translation: str | None = None
     boundaries: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

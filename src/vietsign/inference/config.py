@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 class UploadLimits(BaseModel):
     max_upload_mb: int = Field(default=100, gt=0)
     max_duration_seconds: float = Field(default=30.0, gt=0.0)
-    allowed_extensions: list[str] = Field(default_factory=lambda: [".mp4", ".mov", ".avi", ".mkv"])
+    allowed_extensions: list[str] = Field(default_factory=lambda: [".mp4", ".mov", ".avi", ".mkv", ".webm"])
     temp_dir: Path = Path("outputs/tmp/uploads")
 
 

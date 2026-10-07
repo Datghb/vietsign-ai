@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from pathlib import Path
@@ -75,6 +76,13 @@ class CustomDatasetAdapter(BaseDatasetAdapter):
                     split=row["split"],
                     dataset=row.get("dataset") or self.name,
                     camera=row.get("camera") or None,
+                    view_id=row.get("view_id") or None,
+                    domain_id=row.get("domain_id") or None,
+                    duration=_optional_float(row.get("duration")),
+                    fps=_optional_float(row.get("fps")),
+                    frame_count=_optional_int(row.get("frame_count")),
+                    width=_optional_int(row.get("width")),
+                    height=_optional_int(row.get("height")),
                     metadata={
                         key: value
                         for key, value in row.items()
@@ -88,6 +96,13 @@ class CustomDatasetAdapter(BaseDatasetAdapter):
                             "split",
                             "dataset",
                             "camera",
+                            "view_id",
+                            "domain_id",
+                            "duration",
+                            "fps",
+                            "frame_count",
+                            "width",
+                            "height",
                         }
                         and value not in (None, "")
                     },
@@ -120,6 +135,105 @@ class VSL400Adapter(CustomDatasetAdapter):
             )
         return super().load_samples()
 
+class MultiViewCSVAdapter(CustomDatasetAdapter):
+    """Load normalized multi-view/multi-camera isolated sign metadata.
+
+    This adapter intentionally uses the same canonical CSV shape as the rest of
+    the project, but requires the fields needed for cross-domain evaluation.
+    It is the preferred landing format for Multi-VSL/VSL400-style manifests.
+    """
+
+    REQUIRED_COLUMNS: ClassVar[set[str]] = CustomDatasetAdapter.REQUIRED_COLUMNS | {
+        "signer_id",
+        "view_id",
+    }
+
+
+class ViSignLanguageVideoAdapter(BaseDatasetAdapter):
+    """Load ViSignLanguage-Video Hugging Face metadata."""
+
+    REQUIRED_COLUMNS: ClassVar[set[str]] = {
+        "split",
+        "label",
+        "filename",
+        "filepath",
+        "fps",
+        "total_frames",
+        "width",
+        "height",
+        "duration_s",
+    }
+
+    def __init__(
+        self,
+        name: str,
+        root: str | Path,
+        metadata_csv: str | Path,
+    ) -> None:
+        super().__init__(name=name, root=root)
+        self.metadata_csv = Path(metadata_csv)
+
+    def load_samples(self) -> list[SignSample]:
+        if not self.metadata_csv.exists():
+            raise DatasetLoadError(
+                f"ViSignLanguage-Video metadata CSV not found: {self.metadata_csv}. "
+                "Run `vietsign dataset fetch visignlanguage-video --metadata-only` first."
+            )
+
+        with self.metadata_csv.open("r", encoding="utf-8-sig", newline="") as file:
+            reader = csv.DictReader(file)
+            fieldnames = set(reader.fieldnames or [])
+            missing_columns = self.REQUIRED_COLUMNS - fieldnames
+            if missing_columns:
+                missing = ", ".join(sorted(missing_columns))
+                raise DatasetLoadError(f"ViSignLanguage-Video metadata missing columns: {missing}")
+            rows = list(reader)
+        resolved = [(row, *self._resolve_native_video(row)) for row in rows]
+        labels = {label: index for index, label in enumerate(sorted({label for _, _, label in resolved}))}
+        return [self._row_to_sample(row, video_path, label, labels) for row, video_path, label in resolved]
+
+    def _row_to_sample(
+        self,
+        row: dict[str, str],
+        video_path: Path,
+        label: str,
+        labels: dict[str, int],
+    ) -> SignSample:
+        split = row["split"].strip()
+        filename = row["filename"].strip()
+        return SignSample(
+            sample_id=Path(filename).stem,
+            video_path=video_path,
+            label=label,
+            label_id=labels[label],
+            split=split,
+            dataset=self.name,
+            duration=_optional_float(row.get("duration_s")),
+            fps=_optional_float(row.get("fps")),
+            frame_count=_optional_int(row.get("total_frames")),
+            width=_optional_int(row.get("width")),
+            height=_optional_int(row.get("height")),
+            metadata={
+                "native_filepath": row.get("filepath", ""),
+                "size_mb": row.get("size_mb", ""),
+            },
+        )
+
+    def _resolve_native_video(self, row: dict[str, str]) -> tuple[Path, str]:
+        label = _normalize_label(row["label"])
+        split = row["split"].strip()
+        filename = row["filename"].strip()
+        video_path = self.root / split / label / filename
+        if video_path.exists():
+            return video_path, label
+
+        split_root = self.root / split
+        matches = sorted(split_root.rglob(filename)) if split_root.exists() else []
+        if len(matches) == 1:
+            resolved_path = matches[0]
+            return resolved_path, resolved_path.parent.name
+        return video_path, label
+
 
 class VSL1000Adapter(BaseDatasetAdapter):
     """Reserved adapter for VSL-1000 once its real structure is verified."""
@@ -138,9 +252,32 @@ def create_adapter(config: DatasetConfig) -> BaseDatasetAdapter:
         if source.metadata_csv is None:
             raise DatasetLoadError("custom_csv adapter requires dataset.metadata_csv")
         return CustomDatasetAdapter(source.name, source.root, source.metadata_csv)
+    if source.adapter == "multiview_csv":
+        if source.metadata_csv is None:
+            raise DatasetLoadError("multiview_csv adapter requires dataset.metadata_csv")
+        return MultiViewCSVAdapter(source.name, source.root, source.metadata_csv)
+    if source.adapter == "visignlanguage_video":
+        metadata_csv = source.metadata_csv or Path(source.root) / "dataset_metadata.csv"
+        return ViSignLanguageVideoAdapter(source.name, source.root, metadata_csv)
     if source.adapter == "vsl400":
         metadata_csv = source.metadata_csv or Path("data/metadata/vsl400.csv")
         return VSL400Adapter(source.name, source.root, metadata_csv)
     if source.adapter == "vsl1000":
         return VSL1000Adapter(source.name, source.root)
     raise DatasetLoadError(f"Unsupported dataset adapter: {source.adapter}")
+
+
+def _optional_float(value: str | None) -> float | None:
+    if value in (None, ""):
+        return None
+    return float(value)
+
+
+def _optional_int(value: str | None) -> int | None:
+    if value in (None, ""):
+        return None
+    return int(float(value))
+
+
+def _normalize_label(value: str) -> str:
+    return unicodedata.normalize("NFC", value.strip())

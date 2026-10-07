@@ -31,3 +31,11 @@ sources:
     expected_format: "CSV split metadata with file_id/start/end/text/signer_id; dataset card reports sentence-level video-text pairs from news broadcasts."
     local_target_directory: data/raw/visl_news
     status: metadata_verified_remote_not_downloaded
+  - name: ViSignLanguage-Video
+    task: isolated_sign_recognition_video
+    source_url: https://huggingface.co/datasets/star092304/ViSignLanguage-Video
+    access_type: public_huggingface
+    license: cc-by-4.0
+    expected_format: "dataset.zip plus dataset_metadata.csv with split/label/filename/fps/frame/resolution fields; suitable for class-label Vietnamese sign recognition prototypes."
+    local_target_directory: data/raw/visignlanguage_video
+    status: metadata_verified_remote_not_downloaded
